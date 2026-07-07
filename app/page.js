@@ -17,27 +17,45 @@ export default function Home() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
+  // app/page.js 내부의 handleSubmit 함수만 아래처럼 보완할 수 있습니다.
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     setResult(null);
 
-    try {
+    const requestBody = { address, year: Number(year) };
+    if (month) requestBody.month = Number(month);
+
+    // API 호출을 담당하는 별도 헬퍼 함수
+    async function fetchAddress() {
       const res = await fetch("/api/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, year: Number(year), month: Number(month) }),
+        body: JSON.stringify(requestBody),
       });
-      const data = await res.json();
-
       if (!res.ok) {
-        setError(data.error || "알 수 없는 오류가 발생했습니다.");
-      } else {
-        setResult(data);
+        const data = await res.json();
+        throw new Error(data.error || "서버 오류");
       }
-    } catch (err) {
-      setError("네트워크 오류: " + String(err));
+      return res.json();
+    }
+
+    try {
+      // [시도 1] 일단 먼저 호출
+      const data = await fetchAddress();
+      setResult(data);
+    } catch (firstErr) {
+      console.log("첫 번째 시도 실패(서버 깨우는 중...), 재시도합니다.", firstErr);
+    
+      try {
+        // [시도 2] 첫 번째 실패 시 서버가 깨어났을 테니, 바로 1번 더 재시도
+        const data = await fetchAddress();
+        setResult(data);
+      } catch (secondErr) {
+        // 2등까지 모두 실패했을 때만 화면에 에러 표시
+        setError(secondErr.message || "알 수 없는 오류가 발생했습니다.");
+      }
     } finally {
       setLoading(false);
     }
@@ -116,7 +134,7 @@ export default function Home() {
             cursor: loading ? "default" : "pointer",
           }}
         >
-          {loading ? "조사 중..." : "시점 주소 조회"}
+          {loading ? "조사 중..." : "찾아줘!"}
         </button>
       </form>
 
