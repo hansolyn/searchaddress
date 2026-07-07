@@ -71,7 +71,7 @@ export default function Home() {
         옛 주소를 찾아서...
       </h1>
       <p style={{ color: "#666", marginBottom: 32, fontSize: 14 }}>
-        현재 기준 주소와 촬영 시기(연/월)를 입력하면, 그 시점의 주소를 알려드립니다.
+        현재 기준 주소와 원하는 시기(연/월)를 입력하면, 그 당시의 주소를 알려드립니다.
       </p>
 
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -92,7 +92,7 @@ export default function Home() {
         <div style={{ display: "flex", gap: 12 }}>
           <div style={{ flex: 1 }}>
             <label style={{ display: "block", fontSize: 13, marginBottom: 4, color: "#333" }}>
-              촬영 연도
+              연도
             </label>
             <input
               type="number"
