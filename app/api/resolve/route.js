@@ -32,38 +32,70 @@ export async function POST(request) {
     const periodText = month ? `${year}년 ${month}월` : `${year}년`;
 
     const apiKey = process.env.GEMINI_API_KEY;
-    const model = "gemini-2.5-flash";
+    // flash가 일일 한도(429)를 초과하면 flash-lite로 자동 전환합니다.
+    // 두 모델은 별도 쿼터를 쓰기 때문에, flash 한도 초과가 flash-lite까지
+    // 막지는 않습니다. (단, flash-lite도 자체 일일 한도가 있으니 무한 방어는 아닙니다.)
+    const modelCandidates = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: {
-            parts: [{ text: SYSTEM_INSTRUCTION }],
-          },
-          tools: [{ google_search: {} }],
-          contents: [
+    const requestBody = {
+      system_instruction: {
+        parts: [{ text: SYSTEM_INSTRUCTION }],
+      },
+      tools: [{ google_search: {} }],
+      contents: [
+        {
+          role: "user",
+          parts: [
             {
-              role: "user",
-              parts: [
-                {
-                  // 변경 포인트 3: 위에서 만든 periodText 변수를 넣어 AI에게 자연스러운 문장으로 질문합니다.
-                  text: `현재 기준 주소: ${address}\n촬영 추정 시기: ${periodText}\n\n이 주소가 ${periodText} 당시에는 어떤 행정구역/주소로 불렸는지 조사해서 알려주세요.`,
-                },
-              ],
+              text: `현재 기준 주소: ${address}\n촬영 추정 시기: ${periodText}\n\n이 주소가 ${periodText} 당시에는 어떤 행정구역/주소로 불렸는지 조사해서 알려주세요.`,
             },
           ],
-        }),
-      }
-    );
+        },
+      ],
+    };
 
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
+    let geminiRes = null;
+    let usedModel = null;
+    let lastErrText = null;
+
+    for (const model of modelCandidates) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        }
+      );
+
+      if (res.ok) {
+        geminiRes = res;
+        usedModel = model;
+        break; // 성공했으니 다음 모델은 시도하지 않음
+      }
+
+      // 429(쿼터 초과)면 다음 후보 모델로 넘어감. 그 외 에러는 바로 실패 처리.
+      if (res.status === 429) {
+        lastErrText = await res.text();
+        continue;
+      }
+
+      const errText = await res.text();
       return Response.json(
-        { error: "Gemini API 호출 실패", detail: errText },
-        { status: geminiRes.status }
+        { error: "Gemini API 호출 실패", detail: errText, model_tried: model },
+        { status: res.status }
+      );
+    }
+
+    if (!geminiRes) {
+      // 모든 후보 모델이 다 429였던 경우
+      return Response.json(
+        {
+          error: "Gemini API 호출 실패 (모든 후보 모델 쿼터 초과)",
+          detail: lastErrText,
+          models_tried: modelCandidates,
+        },
+        { status: 429 }
       );
     }
 
@@ -92,6 +124,7 @@ export async function POST(request) {
       input: { address, year, month },
       ...parsed,
       grounding_metadata: groundingMeta,
+      model_used: usedModel, // flash로 성공했는지 flash-lite로 넘어갔는지 확인용
     });
   } catch (err) {
     return Response.json(
